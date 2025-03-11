@@ -1,39 +1,72 @@
 import sqlite3
 import pandas as pd
 from datetime import datetime, timedelta
+import os
+
+DATABASE = 'data.db'
 
 def init_database():
     """Initialize database with necessary tables"""
-    conn = sqlite3.connect('data.db')
-    cursor = conn.cursor()
-    
-    # Create conversation history table
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS conversation_history (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        question TEXT NOT NULL,
-        sql_query TEXT NOT NULL,
-        results TEXT NOT NULL,
-        explanation TEXT NOT NULL,
-        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-        expires_at DATETIME NOT NULL
-    )
-    ''')
-    
-    # Create data table (for CSV data)
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS data (
-        id INTEGER PRIMARY KEY AUTOINCREMENT
-    )
-    ''')
-    
-    conn.commit()
-    conn.close()
+    try:
+        conn = init_db()
+        cursor = conn.cursor()
+        
+        # Create conversation history table
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS conversation_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            question TEXT NOT NULL,
+            sql_query TEXT NOT NULL,
+            results TEXT NOT NULL,
+            explanation TEXT NOT NULL,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            expires_at DATETIME NOT NULL
+        )
+        ''')
+        
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"Error initializing database: {str(e)}")
+        raise
+
+def init_db():
+    """Initialize database connection"""
+    try:
+        # Use absolute path to the database file
+        db_path = os.path.join(os.path.dirname(__file__), DATABASE)
+        conn = sqlite3.connect(db_path)
+        return conn
+    except Exception as e:
+        print(f"Database connection error: {str(e)}")
+        raise
+
+def get_table_schema():
+    """Get detailed schema information for all tables"""
+    schema = {}
+    try:
+        with init_db() as conn:
+            cursor = conn.cursor()
+            # Get all tables
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+            tables = cursor.fetchall()
+            
+            for (table_name,) in tables:
+                cursor.execute(f"PRAGMA table_info({table_name});")
+                columns = cursor.fetchall()
+                schema[table_name] = {
+                    'columns': [col[1] for col in columns],
+                    'types': [col[2] for col in columns]
+                }
+        return schema
+    except Exception as e:
+        print(f"Error getting schema: {str(e)}")
+        return {}
 
 def create_table_from_file(df, table_name):
     """Create a new table in SQLite database from DataFrame"""
     try:
-        conn = sqlite3.connect('data.db')
+        conn = init_db()
         df.to_sql(table_name, conn, if_exists='replace', index=False)
         print(f"Created table {table_name} with {len(df)} rows")  # Debug print
         
@@ -50,62 +83,20 @@ def create_table_from_file(df, table_name):
 
 def remove_table(table_name):
     """Remove a table from the database"""
-    conn = sqlite3.connect('data.db')
-    cursor = conn.cursor()
-    cursor.execute(f"DROP TABLE IF EXISTS {table_name}")
-    conn.commit()
-    conn.close()
-
-def get_all_tables():
-    """Get list of all tables and their schemas"""
-    conn = sqlite3.connect('data.db')
-    cursor = conn.cursor()
-    
-    # Get all table names
-    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name != 'conversation_history';")
-    tables = cursor.fetchall()
-    
-    # Get schema for each table
-    schemas = {}
-    for (table_name,) in tables:
-        cursor.execute(f"PRAGMA table_info({table_name});")
-        columns = cursor.fetchall()
-        schemas[table_name] = {col[1]: col[2] for col in columns}
-    
-    conn.close()
-    return schemas
-
-def execute_query(query):
-    """Execute SQL query and return results as DataFrame"""
     try:
-        conn = sqlite3.connect('data.db')
-        result = pd.read_sql_query(query, conn)
-        conn.close()
-        return result
+        with init_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute(f"DROP TABLE IF EXISTS {table_name};")
+        return True
     except Exception as e:
-        print(f"Error executing query: {e}")
-        raise e
+        print(f"Error removing table {table_name}: {str(e)}")
+        raise
 
-def save_conversation(question, sql_query, results, explanation):
-    """Save conversation to history with 24-hour expiration"""
-    conn = sqlite3.connect('data.db')
-    cursor = conn.cursor()
-    
-    current_time = datetime.now()
-    expires_at = current_time + timedelta(hours=24)
-    
-    cursor.execute('''
-    INSERT INTO conversation_history 
-    (question, sql_query, results, explanation, timestamp, expires_at)
-    VALUES (?, ?, ?, ?, ?, ?)
-    ''', (question, sql_query, str(results), explanation, current_time, expires_at))
-    
-    conn.commit()
-    conn.close()
-
+# Unused functions commented out:
+"""
 def get_recent_conversations():
-    """Get conversations from last 24 hours"""
-    conn = sqlite3.connect('data.db')
+    #Get conversations from last 24 hours
+    conn = init_db()
     cursor = conn.cursor()
     
     # Clean up expired conversations
@@ -134,8 +125,8 @@ def get_recent_conversations():
     ]
 
 def cleanup_expired_conversations():
-    """Delete conversations older than 24 hours"""
-    conn = sqlite3.connect('data.db')
+    #Delete conversations older than 24 hours
+    conn = init_db()
     cursor = conn.cursor()
     
     cursor.execute('''
@@ -144,4 +135,5 @@ def cleanup_expired_conversations():
     ''')
     
     conn.commit()
-    conn.close() 
+    conn.close()
+""" 
